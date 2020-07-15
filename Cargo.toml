@@ -1,0 +1,17 @@
+[package]
+name = "juntos"
+version = "0.1.0"
+authors = ["Evan Laufer <evan.m.laufer@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+volatile = "0.2.6"
+lazy_static = {version = "1.4.0", features = ["spin_no_std"]}
+spin = "0.5.2"
+
+[dev-dependencies]
+mockall = "0.7.1"

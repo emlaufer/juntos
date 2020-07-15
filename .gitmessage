@@ -1,0 +1,6 @@
+<type>(optional scope): <description>
+
+# optional body
+
+# optional footer(s)
+# BREAKING CHANGE: <breaking changes> or use ! after the type in the header
