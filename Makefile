@@ -36,10 +36,17 @@ qemu: $(ISO)
 
 clean:
 	cargo clean
+	rm bochslog.txt
 
 kernel: $(KERNEL_BIN)
 
 iso: $(ISO)
+
+bochs: $(ISO)
+	bochs -f bochs/bochs.$(ARCH) -q
+
+objdump: $(KERNEL_BIN)
+	objdump -D $(KERNEL_BIN)
 
 $(KERNEL_LIB):
 	RUST_TARGET_PATH=$(shell pwd)/src/_arch/$(ARCH) cargo xbuild --target $(ARCH)
