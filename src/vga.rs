@@ -1,15 +1,20 @@
 use core::fmt::{Error, Write};
 use core::ptr;
 use core::slice;
+use lazy_static::lazy_static;
 use spin::Mutex;
 
 const SCREEN_WIDTH: usize = 80;
 const SCREEN_HEIGHT: usize = 25;
 
 lazy_static! {
-    pub static ref VGA_WRITER: Mutex<VgaWriter<'static>> = Mutex::new(VgaWriter::new(unsafe {
-        slice::from_raw_parts_mut(0xb8000 as *mut VgaChar, SCREEN_WIDTH * SCREEN_HEIGHT)
-    }));
+    pub static ref VGA_WRITER: Mutex<VgaWriter<'static>> = {
+        let vga = Mutex::new(VgaWriter::new(unsafe {
+            slice::from_raw_parts_mut(0xb8000 as *mut VgaChar, SCREEN_WIDTH * SCREEN_HEIGHT)
+        }));
+        vga.lock().clear();
+        vga
+    };
 }
 
 #[repr(u8)]
@@ -83,6 +88,19 @@ impl<'a> VgaWriter<'a> {
         }
     }
 
+    pub fn clear(&mut self) {
+        let blank_char = VgaChar::new(b' ', self.color);
+
+        for row in 0..SCREEN_HEIGHT {
+            for col in 0..SCREEN_WIDTH {
+                unsafe {
+                    let pointer = &mut self.buffer[row * SCREEN_WIDTH + col] as *mut VgaChar;
+                    ptr::write_volatile(pointer, blank_char);
+                }
+            }
+        }
+    }
+
     pub fn write_byte(&mut self, byte: u8) {
         // TODO: clean up this method
         if byte == b'\n' {
@@ -104,7 +122,11 @@ impl<'a> VgaWriter<'a> {
         self.col += 1;
 
         if self.col == SCREEN_WIDTH {
-            self.scroll();
+            self.row += 1;
+            if self.row == SCREEN_HEIGHT {
+                self.scroll();
+            }
+            self.col = 0;
         }
     }
 
