@@ -5,12 +5,12 @@ SECTIONS {
 
     .boot :
     {
-        *(.multiboot_header)
+        KEEP(*(.multiboot_header))
     }
 
     .text :
     {
-        *(.text)
+       *(.text)
     }
 
     .rodata :

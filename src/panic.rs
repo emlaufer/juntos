@@ -1,4 +1,4 @@
-use crate::{print, println};
+use crate::println;
 use core::panic::PanicInfo;
 
 #[cfg(not(test))]

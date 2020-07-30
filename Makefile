@@ -12,6 +12,7 @@ ifeq ($(ARCH), x86_64)
 endif
 
 KERNEL_BIN := target/$(ARCH)/kernel-$(ARCH).bin
+#KERNEL_BIN := target/$(ARCH)/debug/juntos
 ISO := target/$(ARCH)/os-$(ARCH).iso
 
 # TODO: Debug or release target?
@@ -19,20 +20,23 @@ KERNEL_LIB := target/$(ARCH)/debug/libjuntos.a
 
 LDFLAGS := -n
 
-ASMDIR := src/_arch/$(ARCH)/asm
+ASMDIR := src/arch/$(ARCH)/asm
 OBJDIR := target/$(ARCH)/obj/
 
 ASMSRC := $(wildcard $(ASMDIR)/*.s)
 ASMOBJ := $(patsubst $(ASMDIR)/%.s, $(OBJDIR)/%.o, $(ASMSRC))
 
-LINK_SCRIPT := src/_arch/$(ARCH)/linker.ld
+LINK_SCRIPT := src/arch/$(ARCH)/linker.ld
 
 .PHONY: all $(KERNEL_LIB) kernel iso qemu clean
 
 all: $(KERNEL_BIN)
 
 qemu: $(ISO)
-	$(QEMU) -cdrom $(ISO) -machine $(QEMU_MACHINE)
+	$(QEMU) -cdrom $(ISO) -machine $(QEMU_MACHINE) --enable-kvm
+
+test:
+	cargo test
 
 clean:
 	cargo clean
@@ -49,7 +53,7 @@ objdump: $(KERNEL_BIN)
 	objdump -D $(KERNEL_BIN)
 
 $(KERNEL_LIB):
-	RUST_TARGET_PATH=$(shell pwd)/src/_arch/$(ARCH) cargo xbuild --target $(ARCH)
+	RUST_TARGET_PATH=$(shell pwd)/src/arch/$(ARCH) cargo xbuild --target $(ARCH)
 
 $(KERNEL_BIN): $(KERNEL_LIB) $(ASMOBJ) $(LINK_SCRIPT)
 	echo $(ASMSRC)

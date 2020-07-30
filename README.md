@@ -13,7 +13,7 @@ that I used to help write this:
 
 ## Features
 
-A basic list of features I want to implement. 
+A basic list of features I want to implement:
 
 - [x] Boots into the Rust kernel
 - [x] Wrapper for the VGA text buffer
@@ -21,3 +21,8 @@ A basic list of features I want to implement.
 - [ ] Virtual Memory
 - [ ] Scheduling
 - [ ] Aarch64 support
+
+Optional features that would be nice to add:
+
+- [ ] Full build using build.rs and custom cargo commands instead of a Makefile
+- [ ] Moving as much of the x86_64 bootloader from asm to Rust
