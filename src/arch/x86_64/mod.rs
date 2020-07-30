@@ -1,3 +1,8 @@
 pub mod instructions;
+pub mod interrupt;
 
-pub fn arch_init() {}
+use interrupt::IDT;
+
+pub fn arch_init() {
+    unsafe { IDT.load() };
+}
