@@ -1,5 +1,6 @@
-use crate::vga::VGA_WRITER;
 use core::fmt::{Arguments, Write};
+
+use crate::vga::VGA_WRITER;
 
 #[doc(hidden)]
 pub fn _print(args: Arguments) {

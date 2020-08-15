@@ -1,7 +1,8 @@
+use bitflags::bitflags;
+
 use super::{HandlerWithError, InterruptStackFrame, StandardHandler};
 use crate::println;
 use crate::{interrupt, interrupt_error, restore_scratch_registers, save_scratch_registers};
-use bitflags::bitflags;
 
 bitflags! {
     struct PageFaultError: usize {

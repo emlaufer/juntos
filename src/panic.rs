@@ -1,5 +1,6 @@
-use crate::println;
 use core::panic::PanicInfo;
+
+use crate::println;
 
 #[cfg(not(test))]
 #[panic_handler]
