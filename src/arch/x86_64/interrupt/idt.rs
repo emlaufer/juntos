@@ -1,7 +1,9 @@
-use super::super::instructions;
-use super::handler::{HandlerWithError, InterruptHandler, StandardHandler};
 use core::marker::PhantomData;
 use core::mem::size_of;
+
+use super::super::instructions;
+use super::super::PriviledgeLevel;
+use super::handler::{HandlerWithError, InterruptHandler, StandardHandler};
 
 #[repr(C, packed)]
 pub struct Idt {
@@ -79,8 +81,8 @@ impl Idt {
     ///            as long as it is needed (i.e. it may not live on the stack).
     pub unsafe fn load(&self) {
         let ptr = IdtPseudoDescriptor {
-            base: self as *const _ as u64,
             limit: (size_of::<Self>() - 1) as u16,
+            base: self as *const _ as u64,
         };
 
         asm!("lidt [{}]", in(reg) &ptr)
@@ -92,16 +94,6 @@ impl Idt {
 struct IdtPseudoDescriptor {
     limit: u16,
     base: u64,
-}
-
-// TODO: This may be best moved to a more central locations
-#[allow(dead_code)]
-#[repr(u8)]
-pub enum PriviledgeLevel {
-    RingZero = 0,
-    RingOne = 1,
-    RingTwo = 2,
-    RingThree = 3,
 }
 
 #[allow(dead_code)]
@@ -156,16 +148,16 @@ impl DescriptorFlags {
 /// Represents an entry into the Interrupt Descriptor Table.
 /// The format is specified as:
 /// ```
-///    0                   1                   2                   3
-///    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+///      3                   2                   1                  
+///    1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0
 ///   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-///   |                           Reserved                            |
+///   |        Target Selector        |      Target Offset[15:0]      |  +0
 ///   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-///   |                      Target Offset[63:31]                     |
+///   |     Target Offset[31:16]      |       Type      |   Zero  |IST|  +4
 ///   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-///   |     Target Offset[31:16]      |       Type      |   Zero  |IST|
+///   |                      Target Offset[63:31]                     |  +8
 ///   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-///   |        Target Selector        |      Target Offset[15:0]      |
+///   |                           Reserved                            |  +12
 ///   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// ```
 #[derive(Copy, Clone, Debug)]
@@ -245,5 +237,9 @@ impl<T: InterruptHandler> Descriptor<T> {
 
     pub fn set_flags(&mut self, type_attr: DescriptorFlags) {
         self.flags = type_attr;
+    }
+
+    pub fn set_ist(&mut self, ist: u8) {
+        self.ist = ist;
     }
 }

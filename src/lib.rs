@@ -22,5 +22,6 @@ pub extern "C" fn kernel_main() -> ! {
     // Run architecture specific initialization code
     arch::arch_init();
 
+    println!("-- kernel_main end --");
     loop {}
 }

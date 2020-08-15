@@ -36,7 +36,7 @@ interrupt_error!(page_fault, |stack_frame, error_code| {
         "\nEXCEPTION: PAGE FAULT with error code {:?}\n{:#?}",
         pagefault_error, stack_frame
     );
-    crate::magic_breakpoint!();
+    loop {}
 });
 
 interrupt_error!(segment_not_present, |stack_frame, error_code| {
@@ -57,14 +57,18 @@ interrupt_error!(stack_segment_fault, |stack_frame, error_code| {
 
 interrupt_error!(general_protection_fault, |stack_frame, error_code| {
     println!(
-        "\nEXCEPTION: general protection fault {:?} with code {:x}",
+        "\nEXCEPTION: general protection fault {:x?} with code {:x}",
         stack_frame, error_code
     );
     loop {}
 });
 
 interrupt_error!(double_fault, |stack_frame, error_code| {
-    println!("\nDOUBLE FAULT: {:?}", stack_frame);
+    println!(
+        "\nDOUBLE FAULT: {:x?} with code {:x}",
+        stack_frame, error_code
+    );
+    crate::magic_breakpoint!();
 
     // Double faults are not allowed to return.
     loop {}

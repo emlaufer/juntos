@@ -1,10 +1,12 @@
 mod handler;
 pub mod idt;
 
+use lazy_static::lazy_static;
+
+use super::gdt::DOUBLE_FAULT_STACK_INDEX;
 use crate::println;
 use handler::exception;
 use idt::{Descriptor, Idt};
-use lazy_static::lazy_static;
 
 lazy_static! {
     pub static ref IDT: Idt = {
@@ -15,7 +17,14 @@ lazy_static! {
         idt.div_by_zero = Descriptor::interrupt(exception::div_by_zero);
         idt.breakpoint = Descriptor::interrupt(exception::breakpoint);
         idt.invalid_opcode = Descriptor::interrupt(exception::invalid_opcode);
-        idt.double_fault = Descriptor::interrupt(exception::double_fault);
+
+        // set double fault to use an IST
+        idt.double_fault = {
+            let mut desc = Descriptor::interrupt(exception::double_fault);
+            desc.set_ist(DOUBLE_FAULT_STACK_INDEX as u8);
+            desc
+        };
+
         idt.segment_not_present = Descriptor::interrupt(exception::segment_not_present);
         idt.stack_segment_fault = Descriptor::interrupt(exception::stack_segment_fault);
         idt.general_protection_fault = Descriptor::interrupt(exception::general_protection_fault);

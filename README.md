@@ -10,6 +10,7 @@ that I used to help write this:
 - https://intermezzos.github.io/
 - https://github.com/rust-embedded/rust-raspberrypi-OS-tutorials
 - https://wiki.osdev.org/
+- https://www.amd.com/system/files/TechDocs/24593.pdf
 
 ## Features
 
