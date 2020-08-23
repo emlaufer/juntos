@@ -14,3 +14,7 @@ lazy_static = {version = "1.4.0", features = ["spin_no_std"]}
 spin = "0.5.2"
 bitflags = "1.2.1"
 paste = "0.1.18"
+
+[dev-dependencies]
+rand = "0.7.3"
+

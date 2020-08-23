@@ -21,6 +21,11 @@ _start:
     ; setup stack
     mov esp, stack_top
 
+    ; put multiboot_info struct into rdi for rust calling convention
+    ; TODO: probably better to move this, so we can use rdi if we want
+    mov edi, ebx
+    mov esi, eax
+
     call check_multiboot
     call check_cpuid
     call check_longmode

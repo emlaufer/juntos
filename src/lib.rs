@@ -17,8 +17,13 @@ mod panic;
 mod print;
 mod vga;
 
+#[allow(dead_code)]
+mod multiboot;
+
+use multiboot::Multiboot2Info;
+
 #[no_mangle]
-pub extern "C" fn kernel_main() -> ! {
+pub extern "C" fn kernel_main(multiboot_info: &Multiboot2Info, magic: u32) -> ! {
     // Run architecture specific initialization code
     arch::arch_init();
 
