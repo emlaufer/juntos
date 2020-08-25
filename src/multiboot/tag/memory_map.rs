@@ -2,18 +2,19 @@ use core::marker::PhantomData;
 use core::mem::size_of;
 
 use super::TagHeader;
+use crate::memory::MemoryRegion;
 
 #[derive(Debug)]
 #[repr(C)]
-pub struct MemoryMap {
+pub struct MemoryMap<'a> {
     header: TagHeader,
     entry_size: u32,
     entry_version: u32,
-    // entries are after this tag
+    _marker: PhantomData<&'a [Entry]>, // entries are after this tag
 }
 
-impl MemoryMap {
-    pub fn entries(&self) -> Iter {
+impl<'a> MemoryMap<'a> {
+    pub fn entries(&self) -> Iter<'a> {
         // SAFETY: This is safe because `self.offset(1)` will return the first byte past the
         //         MemoryMap struct in memory, the computed offset cannot overflow an isize, and
         //         the offset will not wrap around the address space (because the structs are populated
@@ -29,6 +30,19 @@ impl MemoryMap {
             entries_remaining,
             _marker: PhantomData,
         }
+    }
+
+    pub fn available_regions(&self) -> impl Iterator<Item = MemoryRegion> + 'a {
+        self.entries().filter_map(|entry| {
+            if entry.entry_type() == EntryType::Available {
+                Some(MemoryRegion::new(
+                    entry.start_addr() as usize,
+                    entry.end_addr() as usize,
+                ))
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -62,7 +76,7 @@ impl<'a> Iterator for Iter<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum EntryType {
     Reserved,
     Available,

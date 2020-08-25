@@ -2,6 +2,7 @@ mod tag;
 
 use core::marker::PhantomData;
 
+use crate::memory::MemoryRegion;
 use tag::*;
 
 // TODO: I may want to wrap this in another struct
@@ -17,6 +18,12 @@ impl<'a> Multiboot2Info<'a> {
         //         immediatly follow this header. This ptr will also be non-null and 8-byte aligned
         //         as the header starts 8-byte aligned and is 8 bytes big.
         unsafe { TagIterator::new((self as *const Multiboot2Info).offset(1) as *const TagHeader) }
+    }
+
+    /// Returns a logical memory region in which this multiboot2 struct resides
+    pub fn memory_region(&self) -> MemoryRegion {
+        let start = (self as *const Multiboot2Info) as usize;
+        MemoryRegion::new(start, start + self.total_size as usize)
     }
 
     pub fn memory_info(&self) -> Option<&'a MemoryInfo> {

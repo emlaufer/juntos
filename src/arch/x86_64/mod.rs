@@ -1,6 +1,7 @@
 pub mod gdt;
 pub mod instructions;
 pub mod interrupt;
+pub mod paging;
 
 use gdt::GDT;
 use interrupt::IDT;
