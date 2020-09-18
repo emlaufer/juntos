@@ -13,12 +13,50 @@
 
 global _start
 
-extern long_mode_start
+; page table defined in linker script
+extern p4_table
+extern p3_table
+extern p2_table
+extern p1_table
 
-section .text
+; stack defined in linker script
+extern stack_top
+extern stack_bottom
+
+; GDT for our jump to longmode
+; Taken from osdev, though pretty self explanatory from AMD64 manual
+section .boot.data
+gdt64:
+    .null: equ $ - gdt64         ; The null descriptor.
+    dw 0xFFFF                    ; Limit (low).
+    dw 0                         ; Base (low).
+    db 0                         ; Base (middle)
+    db 0                         ; Access.
+    db 1                         ; Granularity.
+    db 0                         ; Base (high).
+    .code: equ $ - gdt64         ; The code descriptor.
+    dw 0                         ; Limit (low).
+    dw 0                         ; Base (low).
+    db 0                         ; Base (middle)
+    db 10011010b                 ; Access (exec/read).
+    db 10101111b                 ; Granularity, 64 bits flag, limit19:16.
+    db 0                         ; Base (high).
+    .data: equ $ - gdt64         ; The data descriptor.
+    dw 0                         ; Limit (low).
+    dw 0                         ; Base (low).
+    db 0                         ; Base (middle)
+    db 10010010b                 ; Access (read/write).
+    db 00000000b                 ; Granularity.
+    db 0                         ; Base (high).
+    .pointer:                    ; The GDT-pointer.
+    dw $ - gdt64 - 1             ; Limit.
+    dq gdt64                     ; Base.
+
+section .boot.text
 bits 32
 _start:
     ; setup stack
+    ; TODO: move the stack to somewhere else
     mov esp, stack_top
 
     ; put multiboot_info struct into rdi for rust calling convention
@@ -42,30 +80,40 @@ _start:
 ; sets up a page table that identity maps the first GB of the kernel
 ; TODO: do we want to increase or decrease this?
 init_page_tables:
+    ; TODO: I am assuming I will do recursive mapping, but still not entirely
+    ;       sure yet. Just in case, I wil set up a recursive mapping here
+    mov eax, p4_table
+    or eax, PAGE_RW | PAGE_P
+    mov [p4_table + 511 * 8], eax
+
     ; point first p4_table entry to p3_table
     mov eax, p3_table
     or eax, PAGE_RW | PAGE_P     ; set present and writable flags
     mov [p4_table + 0], eax      ; set the first entry of p4 to p3
+    mov [p4_table + 256 * 8], eax ; also map the pages to the higher half
 
     ; point first p3_table entry to p2_table
     mov eax, p2_table
     or eax, PAGE_RW | PAGE_P
     mov [p3_table + 0], eax
 
-    ; map each p2 entry to a huge 2MiB page
-    ; TODO: we need to use CPUID to check support, maybe should just
-    ;       use normal pages instead
+    ; point first p2_table entry to p2_table
+    mov eax, p1_table
+    or eax, PAGE_RW | PAGE_P
+    mov [p2_table + 0], eax
+
+    ; map each p1 entry to a 4K page
     mov ecx, 0                          ; for loop counter
 
-    .map_p2_table_loop:
-    mov eax, 0x200000
+    .map_p1_table_loop:
+    mov eax, 0x1000
     mul ecx
-    or eax, PAGE_H | PAGE_RW | PAGE_P   ; set page flags
-    mov [p2_table + ecx * 8], eax       ; map the entry to our page
+    or eax, PAGE_RW | PAGE_P   ; set page flags
+    mov [p1_table + ecx * 8], eax       ; map the entry to our page
 
     inc ecx,                            ; for loop logic
     cmp ecx, 512
-    jne .map_p2_table_loop
+    jne .map_p1_table_loop
 
     ret
 
@@ -96,10 +144,6 @@ enable_paging:
 
 
 ; code below was taken from OSDev.org
-
-; apperently we rely on multiboot features? which ones?
-; could be nice to put this in multiboot file, to separate
-; concerns of this file away from anything multiboot related
 check_multiboot:
     ; multiboot bootloader must write magic value to eax
     ; simply check it
@@ -175,44 +219,36 @@ error:
     mov byte  [0xb800a], al
     hlt
 
-section .rodata
-; GDT for our jump to longmode
-; Taken form osdev (which says it is from AMD programmers manual)
-gdt64:
-    .null: equ $ - gdt64         ; The null descriptor.
-    dw 0xFFFF                    ; Limit (low).
-    dw 0                         ; Base (low).
-    db 0                         ; Base (middle)
-    db 0                         ; Access.
-    db 1                         ; Granularity.
-    db 0                         ; Base (high).
-    .code: equ $ - gdt64         ; The code descriptor.
-    dw 0                         ; Limit (low).
-    dw 0                         ; Base (low).
-    db 0                         ; Base (middle)
-    db 10011010b                 ; Access (exec/read).
-    db 10101111b                 ; Granularity, 64 bits flag, limit19:16.
-    db 0                         ; Base (high).
-    .data: equ $ - gdt64         ; The data descriptor.
-    dw 0                         ; Limit (low).
-    dw 0                         ; Base (low).
-    db 0                         ; Base (middle)
-    db 10010010b                 ; Access (read/write).
-    db 00000000b                 ; Granularity.
-    db 0                         ; Base (high).
-    .pointer:                    ; The GDT-pointer.
-    dw $ - gdt64 - 1             ; Limit.
-    dq gdt64                     ; Base.
 
-; create page tables and stack
-section .bss
-align 4096
-p4_table:
-    resb 4096
-p3_table:
-    resb 4096
-p2_table:
-    resb 4096
-stack_bottom:
-    resb 4096 * 4
-stack_top:
+; long mode entry point
+bits 64
+global long_mode_start
+extern KERNEL_VOFFSET
+extern kernel_main
+
+section .boot.text
+long_mode_start:
+
+    ; fix the stack pointer to point to higher half
+    mov rax, KERNEL_VOFFSET
+    add rax, rsp
+    mov rsp, rax
+
+    ; flush segment registers with null
+    ; or they will have old values and iretq will cause a protection fault!
+    mov ax, 0
+    mov ss, ax
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+
+    ; must place address in register for near-aboslute call
+    mov rax, kernel_main
+    call rax
+
+    ; print `OKAY` to screen
+    mov rax, 0x2f592f412f4b2f4f
+    mov qword [0xb8000], rax
+    hlt
+

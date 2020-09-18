@@ -18,7 +18,7 @@ ISO := target/$(ARCH)/os-$(ARCH).iso
 # TODO: Debug or release target?
 KERNEL_LIB := target/$(ARCH)/debug/libjuntos.a
 
-LDFLAGS := -n
+LDFLAGS := -n -b elf64-x86-64
 
 ASMDIR := src/arch/$(ARCH)/asm
 OBJDIR := target/$(ARCH)/obj/
