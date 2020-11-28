@@ -2,3 +2,4 @@
 
 #![allow(dead_code)]
 pub mod registers;
+pub mod tlb;

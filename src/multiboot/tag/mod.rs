@@ -1,5 +1,5 @@
-mod elf_symbols;
-mod memory_map;
+pub mod elf_symbols;
+pub mod memory_map;
 
 use core::marker::PhantomData;
 use core::{slice, str};

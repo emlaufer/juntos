@@ -15,12 +15,12 @@ macro_rules! define_set_seg_func {
     };
 }
 
-define_read_reg_func!(cs);
-define_read_reg_func!(ds);
-define_read_reg_func!(ss);
-define_read_reg_func!(es);
-define_read_reg_func!(fs);
-define_read_reg_func!(gs);
+define_read_reg_func!(cs, u16);
+define_read_reg_func!(ds, u16);
+define_read_reg_func!(ss, u16);
+define_read_reg_func!(es, u16);
+define_read_reg_func!(fs, u16);
+define_read_reg_func!(gs, u16);
 
 define_set_seg_func!(ds);
 define_set_seg_func!(ss);

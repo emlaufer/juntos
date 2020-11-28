@@ -1,11 +1,16 @@
 //! Contains the architecture independent portions of the memory manager
 //! Some of this was inspired by Redox, others inspired by Phil OS
 
+mod bitmap;
 mod bump;
 
 use core::cmp::{max, min};
+use lazy_static::lazy_static;
+use spin::Mutex;
 
-use crate::arch::paging::PAGE_SIZE;
+use crate::arch::paging::{PhysicalAddress, PAGE_SIZE};
+use crate::println;
+pub use bitmap::{Bitmap, BitmapAllocator};
 pub use bump::BumpAllocator;
 
 pub trait FrameAllocator {
@@ -13,13 +18,27 @@ pub trait FrameAllocator {
     fn dealloc(&mut self, frame: Frame);
 }
 
+// TODO: associate a frame with its allocator,
+//       automatically free it when dropped.
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Frame {
-    num: usize,
+    pub num: usize,
 }
 
 impl Frame {
-    fn containing(addr: usize) -> Frame {
+    pub fn addr_from_number(num: usize) -> PhysicalAddress {
+        PhysicalAddress::from_usize(num * PAGE_SIZE)
+    }
+
+    pub fn number_from_addr(addr: PhysicalAddress) -> usize {
+        addr.as_usize() / PAGE_SIZE
+    }
+
+    pub fn addr(&self) -> PhysicalAddress {
+        Frame::addr_from_number(self.num)
+    }
+
+    pub fn containing(addr: usize) -> Frame {
         Frame {
             num: addr / PAGE_SIZE,
         }
@@ -72,7 +91,58 @@ impl Iterator for FrameIter {
     }
 }
 
-/// Simply represents some contiguous region in memory
+use crate::multiboot::tag::memory_map;
+
+/// Represents an OWNED chunk of physical memory.
+#[derive(Debug, Eq, PartialEq)]
+pub struct PhysicalMemoryRegion {
+    pub base: PhysicalAddress,
+    pub size: usize,
+}
+
+impl PhysicalMemoryRegion {
+    /// Returns an empty region. This is safe, because by definition
+    /// it controls no memory.
+    // TODO: should this be public
+    pub const fn empty() -> PhysicalMemoryRegion {
+        PhysicalMemoryRegion {
+            base: PhysicalAddress::new(0),
+            size: 0,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new(base: PhysicalAddress, size: usize) -> PhysicalMemoryRegion {
+        PhysicalMemoryRegion { base, size }
+    }
+
+    // TODO: this should consume the entry
+    pub fn from_multiboot(entry: &memory_map::Entry) -> PhysicalMemoryRegion {
+        PhysicalMemoryRegion {
+            base: PhysicalAddress::new(entry.base_addr),
+            size: entry.length as usize,
+        }
+    }
+
+    /// Removes the specific number of bytes from the begining of the region, and returns it
+    /// as a new region.
+    pub fn take(&mut self, amount: usize) -> PhysicalMemoryRegion {
+        let old_base = self.base;
+        self.base = self.base.add(amount as u64);
+        self.size -= amount;
+
+        PhysicalMemoryRegion {
+            base: old_base,
+            size: amount,
+        }
+    }
+
+    pub fn end(&self) -> PhysicalAddress {
+        self.base.add(self.size as u64)
+    }
+}
+
+/// Represents a
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct MemoryRegion {
     pub start_addr: usize,

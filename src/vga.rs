@@ -10,7 +10,10 @@ const SCREEN_HEIGHT: usize = 25;
 lazy_static! {
     pub static ref VGA_WRITER: Mutex<VgaWriter<'static>> = {
         let vga = Mutex::new(VgaWriter::new(unsafe {
-            slice::from_raw_parts_mut(0xb8000 as *mut VgaChar, SCREEN_WIDTH * SCREEN_HEIGHT)
+            slice::from_raw_parts_mut(
+                0xFFFF_8000_000b_8000 as *mut VgaChar,
+                SCREEN_WIDTH * SCREEN_HEIGHT,
+            )
         }));
         vga.lock().clear();
         vga

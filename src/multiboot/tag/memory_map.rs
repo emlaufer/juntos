@@ -18,8 +18,7 @@ impl<'a> MemoryMap<'a> {
         // SAFETY: This is safe because `self.offset(1)` will return the first byte past the
         //         MemoryMap struct in memory, the computed offset cannot overflow an isize, and
         //         the offset will not wrap around the address space (because the structs are populated
-        //         by the multiboot2 header to fit in physical memory) TODO: are we using vaddrs or
-        //         paddrs? (see ptr.offset())
+        //         by the multiboot2 header to fit in physical memory)
         let list_ptr = unsafe { (self as *const MemoryMap).offset(1) as *const Entry };
         let entries_remaining =
             (self.header.size as usize - size_of::<MemoryMap>()) / self.entry_size as usize;
@@ -32,13 +31,10 @@ impl<'a> MemoryMap<'a> {
         }
     }
 
-    pub fn available_regions(&self) -> impl Iterator<Item = MemoryRegion> + 'a {
+    pub fn available(&self) -> impl Iterator<Item = &'a Entry> + 'a {
         self.entries().filter_map(|entry| {
             if entry.entry_type() == EntryType::Available {
-                Some(MemoryRegion::new(
-                    entry.start_addr() as usize,
-                    entry.end_addr() as usize,
-                ))
+                Some(entry)
             } else {
                 None
             }

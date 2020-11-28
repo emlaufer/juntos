@@ -57,7 +57,7 @@ bits 32
 _start:
     ; setup stack
     ; TODO: move the stack to somewhere else
-    mov esp, stack_top
+    mov esp, stack_bottom
 
     ; put multiboot_info struct into rdi for rust calling convention
     ; TODO: probably better to move this, so we can use rdi if we want
@@ -218,13 +218,32 @@ error:
     mov dword [0xb8008], 0x4f204f20
     mov byte  [0xb800a], al
     hlt
-
-
 ; long mode entry point
 bits 64
 global long_mode_start
 extern KERNEL_VOFFSET
 extern kernel_main
+
+extern vstack_bottom
+extern vstack_top
+extern _kernel_start
+extern _kernel_end
+extern _vkernel_start
+extern _vkernel_end
+
+; get the virtual higher-half addresses for the kernel stack
+;vkstack_bottom: equ stack_bottom + KERNEL_VOFFSET
+;vkstack_top: equ stack_top + KERNEL_VOFFSET
+
+section .data
+boot_info:
+    dq vstack_bottom
+    dq vstack_top
+    dq _kernel_start
+    dq _kernel_end
+    dq _vkernel_start
+    dq _vkernel_end
+
 
 section .boot.text
 long_mode_start:
@@ -242,6 +261,9 @@ long_mode_start:
     mov es, ax
     mov fs, ax
     mov gs, ax
+
+    ; put boot info into third main param
+    mov rdx, boot_info 
 
     ; must place address in register for near-aboslute call
     mov rax, kernel_main

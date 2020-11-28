@@ -2,9 +2,18 @@ use core::fmt::{Arguments, Write};
 
 use crate::vga::VGA_WRITER;
 
+#[cfg(not(test))]
 #[doc(hidden)]
 pub fn _print(args: Arguments) {
     VGA_WRITER.lock().write_fmt(args).unwrap();
+}
+
+// Allows us to print in the kernel during testing.
+// Very useful.
+#[cfg(test)]
+#[doc(hidden)]
+pub fn _print(args: Arguments) {
+    std::print!("{}", args)
 }
 
 #[macro_export]

@@ -1,4 +1,4 @@
-mod tag;
+pub mod tag;
 
 use core::marker::PhantomData;
 

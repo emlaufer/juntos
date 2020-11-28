@@ -27,7 +27,8 @@ SECTIONS {
      * actually place the sections immediatly after boot in the kernel.
      * i.e. code is actually at ~1M, but vaddrs written to higher half */
     . += KERNEL_VOFFSET;
-    _kernel_start = .;
+    _vkernel_start = .;
+    _kernel_start = . - KERNEL_VOFFSET;
     .text ALIGN (4K) : AT (ADDR (.text) - KERNEL_VOFFSET)
     {
        *(.text .text.*)
@@ -56,18 +57,21 @@ SECTIONS {
         /* we export symbols for the bootloader to use
          * (because it wont have paging, we give it physical addresses */
         . = ALIGN (4K);
-        p4_table = . - KERNEL_VOFFSET;
-        . += 4K;
-        p3_table = . - KERNEL_VOFFSET;
+        p1_table = . - KERNEL_VOFFSET;
         . += 4K;
         p2_table = . - KERNEL_VOFFSET;
         . += 4K;
-        p1_table = . - KERNEL_VOFFSET;
+        p3_table = . - KERNEL_VOFFSET;
         . += 4K;
-        stack_bottom = . - KERNEL_VOFFSET;
-        . += 4 * 4K;
+        p4_table = . - KERNEL_VOFFSET;
+        . += 4K;
+        vstack_top = .;
         stack_top = . - KERNEL_VOFFSET;
+        . += 4 * 4K;
+        vstack_bottom = .;
+        stack_bottom = . - KERNEL_VOFFSET;
 
     }
-    _kernel_end = .;
+    _vkernel_end = .;
+    _kernel_end = . - KERNEL_VOFFSET;
 }
