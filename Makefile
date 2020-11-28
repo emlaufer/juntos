@@ -36,7 +36,7 @@ qemu: $(ISO)
 	$(QEMU) -cdrom $(ISO) -machine $(QEMU_MACHINE) --enable-kvm
 
 test:
-	cargo test
+	cargo test --target x86_64-unknown-linux-gnu
 
 clean:
 	cargo clean
@@ -53,7 +53,7 @@ objdump: $(KERNEL_BIN)
 	objdump -D $(KERNEL_BIN)
 
 $(KERNEL_LIB):
-	RUST_TARGET_PATH=$(shell pwd)/src/arch/$(ARCH) cargo xbuild --target $(ARCH)
+	RUST_TARGET_PATH=$(shell pwd)/src/arch/$(ARCH) cargo build --target $(ARCH) -Z build-std=core,compiler_builtins,alloc -Z build-std-features=compiler-builtins-mem
 
 $(KERNEL_BIN): $(KERNEL_LIB) $(ASMOBJ) $(LINK_SCRIPT)
 	echo $(ASMSRC)
