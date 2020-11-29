@@ -35,8 +35,8 @@ impl Page {
         }
     }
 
-    fn addr(&self) -> VirtualAddress {
-        VirtualAddress::from(self.num * PAGE_SIZE)
+    pub fn addr(&self) -> VirtualAddress {
+        VirtualAddress::new_truncate((self.num * PAGE_SIZE) as u64)
     }
 
     // basically , page number is just

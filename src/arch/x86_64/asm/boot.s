@@ -249,8 +249,9 @@ section .boot.text
 long_mode_start:
 
     ; fix the stack pointer to point to higher half
-    mov rax, KERNEL_VOFFSET
-    add rax, rsp
+    ;mov rax, KERNEL_VOFFSET
+    mov rax, vstack_bottom
+    ;add rax, rsp
     mov rsp, rax
 
     ; flush segment registers with null

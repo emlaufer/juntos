@@ -1,3 +1,5 @@
+/// Just a dummy allocator so I can figure out how the global allocator works in rust.
+/// Based off info in Philipp Oppermanns OS blog.
 use alloc::alloc::{GlobalAlloc, Layout};
 use core::ptr::null_mut;
 

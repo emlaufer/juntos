@@ -2,93 +2,128 @@
 //! Some of this was inspired by Redox, others inspired by Phil OS
 
 mod bitmap;
-mod bump;
 
-use core::cmp::{max, min};
 use lazy_static::lazy_static;
 use spin::Mutex;
 
 use crate::arch::paging::{PhysicalAddress, PAGE_SIZE};
 use crate::println;
-pub use bitmap::{Bitmap, BitmapAllocator};
-pub use bump::BumpAllocator;
+pub use bitmap::BootstrapAllocatorImpl;
 
-pub trait FrameAllocator {
-    fn alloc(&mut self) -> Option<Frame>;
-    fn dealloc(&mut self, frame: Frame);
+// TODO: If allocator needs some args to init, we can add that.
+//       Though for now this should be fine.
+macro_rules! frame_allocator {
+    ($type:tt, $impl:ty) => {
+        #[derive(Debug, Copy, Clone)]
+        pub struct $type;
+
+        impl $type {
+            fn __impl() -> &'static Mutex<$impl> {
+                lazy_static! {
+                    static ref ALLOCATOR: Mutex<$impl> = Mutex::new(<$impl>::new());
+                }
+                &ALLOCATOR
+            }
+        }
+
+        unsafe impl FrameAllocator for $type {
+            unsafe fn init(region: PhysicalMemoryRegion) {
+                <$type>::__impl().lock().init(region);
+            }
+
+            fn get() -> Self {
+                $type
+            }
+
+            fn alloc(&self) -> Option<Frame<Self>> {
+                <$type>::__impl().lock().alloc().map(|frame| Frame {
+                    num: frame.num,
+                    alloc: $type,
+                })
+            }
+
+            #[doc(hidden)]
+            unsafe fn __free_frame(&self, frame: &mut Frame<Self>) {
+                println!("We are freeing frame");
+                <$type>::__impl()
+                    .lock()
+                    .dealloc(RawFrame { num: frame.num })
+            }
+        }
+    };
+}
+
+frame_allocator!(BootstrapAllocator, BootstrapAllocatorImpl);
+
+/// Represents a handle to a static FrameAllocator. It should only be implemented using the
+/// frame_allocator macro.
+pub unsafe trait FrameAllocator: Copy {
+    /// Initializes the memory allocator by giving it a memory region to manage.
+    /// This method consumes the region, i.e. currently this is a permanent decision.
+    ///
+    /// # Safety
+    /// This method is unsafe, because it could be used to leak physical memory if called
+    /// multiple times. Therefore, it is safe so long as it is only called once.
+    unsafe fn init(region: PhysicalMemoryRegion);
+
+    /// Returns a handle to the memory allocator.
+    fn get() -> Self;
+
+    /// Allocates a frame from the memory allocator. This frame will automatically be freed when
+    /// it is dropped.
+    fn alloc(&self) -> Option<Frame<Self>>;
+
+    #[doc(hidden)]
+    unsafe fn __free_frame(&self, f: &mut Frame<Self>);
+}
+
+#[derive(Debug)]
+pub struct Frame<A: FrameAllocator> {
+    alloc: A, // ZST to allocator
+    num: usize,
+}
+
+impl<A> Frame<A>
+where
+    A: FrameAllocator,
+{
+    pub fn num(&self) -> usize {
+        self.num
+    }
+
+    pub fn addr(&self) -> PhysicalAddress {
+        PhysicalAddress::from(self.num * PAGE_SIZE)
+    }
+
+    pub fn containing(addr: usize) -> Frame<BootstrapAllocator> {
+        Frame::<BootstrapAllocator> {
+            alloc: BootstrapAllocator,
+            num: addr / PAGE_SIZE,
+        }
+    }
+}
+
+impl<A: FrameAllocator> Drop for Frame<A> {
+    fn drop(&mut self) {
+        let alloc = self.alloc;
+        unsafe { alloc.__free_frame(self) };
+    }
+}
+
+/// The methods that a FrameAllocator implementation must implement. Any instance of this
+/// should not be created manually, and only through the frame_allocator! macro.
+pub trait FrameAllocatorImpl {
+    fn new() -> Self;
+    fn init(&mut self, arena: PhysicalMemoryRegion);
+    fn alloc(&mut self) -> Option<RawFrame>;
+    fn dealloc(&mut self, frame: RawFrame);
 }
 
 // TODO: associate a frame with its allocator,
 //       automatically free it when dropped.
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct Frame {
+pub struct RawFrame {
     pub num: usize,
-}
-
-impl Frame {
-    pub fn addr_from_number(num: usize) -> PhysicalAddress {
-        PhysicalAddress::from_usize(num * PAGE_SIZE)
-    }
-
-    pub fn number_from_addr(addr: PhysicalAddress) -> usize {
-        addr.as_usize() / PAGE_SIZE
-    }
-
-    pub fn addr(&self) -> PhysicalAddress {
-        Frame::addr_from_number(self.num)
-    }
-
-    pub fn containing(addr: usize) -> Frame {
-        Frame {
-            num: addr / PAGE_SIZE,
-        }
-    }
-
-    /// returns the first frame after a particular address
-    fn after(addr: usize) -> Frame {
-        Frame {
-            num: (addr + PAGE_SIZE - 1) / PAGE_SIZE,
-        }
-    }
-
-    // SUPER PRIVATE - We cannot allow consumers of this interface to create or copy their own frames!
-    fn clone(&self) -> Frame {
-        Frame { num: self.num }
-    }
-
-    // THIS needs to be SUPER private
-    fn offset(&self, offset: isize) -> Frame {
-        // ensure the frame number doesn't over or underflow
-        // TODO: should we panic if it does? Probably
-        let num = if offset.is_negative() {
-            self.num
-                .checked_sub(offset.wrapping_abs() as usize)
-                .unwrap()
-        } else {
-            self.num.checked_add(offset as usize).unwrap()
-        };
-
-        Frame { num }
-    }
-}
-
-struct FrameIter {
-    current: Frame,
-    end: Frame,
-}
-
-impl Iterator for FrameIter {
-    type Item = Frame;
-
-    fn next(&mut self) -> Option<Frame> {
-        if self.current <= self.end {
-            let res = self.current.clone();
-            self.current = self.current.offset(1);
-            Some(res)
-        } else {
-            None
-        }
-    }
 }
 
 use crate::multiboot::tag::memory_map;
@@ -142,88 +177,26 @@ impl PhysicalMemoryRegion {
     }
 }
 
-/// Represents a
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct MemoryRegion {
-    pub start_addr: usize,
-    pub end_addr: usize,
+pub struct MemoryRange {
+    start_addr: PhysicalAddress,
+    end_addr: PhysicalAddress,
 }
 
-impl MemoryRegion {
+impl MemoryRange {
     // This is okay to be public correct? Yes because it doesn't really mean much?
     // Or no because we can create a memory allocator with invalid regions?
-    pub fn new(start_addr: usize, end_addr: usize) -> MemoryRegion {
+    pub fn new(start_addr: usize, end_addr: usize) -> MemoryRange {
         assert!(start_addr <= end_addr);
 
-        MemoryRegion {
-            start_addr,
-            end_addr,
+        MemoryRange {
+            start_addr: PhysicalAddress::from(start_addr),
+            end_addr: PhysicalAddress::from(end_addr),
         }
-    }
-
-    fn start_frame(&self) -> Frame {
-        // get the first FULL frame
-        // NOTE: cannot just use `Frame::containing(self.start_addr - 1)` in case `start_addr` is 0
-        Frame::after(self.start_addr)
-    }
-
-    fn end_frame(&self) -> Frame {
-        // get the last FULL frame
-        // End is exclusive, so we always want the frame before
-        Frame::containing(self.end_addr).offset(-1)
     }
 
     /// Returns true if this region entirely contains `region`
-    pub fn contains(&self, region: &MemoryRegion) -> bool {
+    pub fn contains(&self, region: &MemoryRange) -> bool {
         self.start_addr <= region.start_addr && region.end_addr <= self.end_addr
-    }
-
-    /// Returns a MemoryRegion that is the intersection of both regions
-    pub fn intersection(&self, region: &MemoryRegion) -> Option<MemoryRegion> {
-        let start = max(self.start_addr, region.start_addr);
-        let end = min(self.end_addr, region.end_addr);
-
-        if start >= end {
-            None
-        } else {
-            Some(MemoryRegion::new(start, end))
-        }
-    }
-
-    #[allow(unused)]
-    fn contains_frame(&self, frame: &Frame) -> bool {
-        self.start_frame() <= *frame && *frame <= self.end_frame()
-    }
-
-    /// Subtracts one memory region from another, returning
-    pub fn subtract(self, other: MemoryRegion) -> (MemoryRegion, Option<MemoryRegion>) {
-        // kernel entirely inside region
-        if self.start_addr < other.start_addr && other.end_addr < self.end_addr {
-            (
-                MemoryRegion::new(self.start_addr, other.start_addr),
-                Some(MemoryRegion::new(other.end_addr, self.end_addr)),
-            )
-        // kernel is at start and overlapping
-        } else if other.start_addr <= self.start_addr
-            && self.start_addr <= other.end_addr
-            && other.end_addr <= self.end_addr
-        {
-            (MemoryRegion::new(other.end_addr, self.end_addr), None)
-        // kernel at end and overlapping
-        } else if self.start_addr < other.start_addr
-            && other.start_addr < self.end_addr
-            && self.end_addr <= other.end_addr
-        {
-            (MemoryRegion::new(self.start_addr, other.start_addr), None)
-        } else {
-            (self, None)
-        }
-    }
-
-    fn frames(&self) -> FrameIter {
-        FrameIter {
-            current: self.start_frame(),
-            end: self.end_frame(),
-        }
     }
 }

@@ -1,4 +1,4 @@
-use crate::println;
+use super::PAGE_SIZE;
 
 // Represents a 64-bit canonical address
 // TODO: it could be cool to associate a vaddr with a page table or something,
@@ -71,6 +71,14 @@ impl PhysicalAddress {
         PhysicalAddress(addr)
     }
 
+    pub fn frame_num(&self) -> usize {
+        self.as_usize() / PAGE_SIZE
+    }
+
+    pub fn from_frame_num(num: usize) -> PhysicalAddress {
+        PhysicalAddress::from(num * PAGE_SIZE)
+    }
+
     pub fn from_usize(addr: usize) -> PhysicalAddress {
         PhysicalAddress::new(addr as u64)
     }
@@ -92,8 +100,33 @@ impl PhysicalAddress {
             panic!("Alignment not a power of two!")
         }
 
-        let raw = ((self.0 - 1) | (align - 1)) + 1;
+        // Have to do this wacky way, otherwise risk of underflowing
+        // the address
+        let raw = (self.0 + align - 1) & !(align - 1);
         PhysicalAddress::new(raw)
+    }
+}
+impl From<u64> for PhysicalAddress {
+    fn from(addr: u64) -> Self {
+        PhysicalAddress::new(addr)
+    }
+}
+
+impl From<usize> for PhysicalAddress {
+    fn from(addr: usize) -> Self {
+        PhysicalAddress::new(addr as u64)
+    }
+}
+
+impl<T> From<*const T> for PhysicalAddress {
+    fn from(addr: *const T) -> Self {
+        PhysicalAddress::new(addr as u64)
+    }
+}
+
+impl<T> From<&T> for PhysicalAddress {
+    fn from(addr: &T) -> Self {
+        PhysicalAddress::from(addr as *const T)
     }
 }
 

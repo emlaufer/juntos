@@ -2,7 +2,6 @@ use core::marker::PhantomData;
 use core::mem::size_of;
 
 use super::TagHeader;
-use crate::memory::MemoryRegion;
 
 #[derive(Debug)]
 #[repr(C)]

@@ -18,8 +18,10 @@ A basic list of features I want to implement:
 
 - [x] Boots into the Rust kernel
 - [x] Wrapper for the VGA text buffer
-- [ ] Basic interrupt and exception handling
-- [ ] Virtual Memory
+- [X] Basic interrupt and exception handling
+- [X] Virtual Memory
+- [ ] File System support
+- [ ] User-processes
 - [ ] Scheduling
 - [ ] Aarch64 support
 

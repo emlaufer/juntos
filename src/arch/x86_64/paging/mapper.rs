@@ -11,9 +11,10 @@ impl<'a> Mapper<'a> {
         Mapper { page_table: table }
     }
 
-    pub fn map<A>(&mut self, page: Page, frame: Frame, alloc: &mut A)
+    pub fn map<A, B>(&mut self, page: Page, frame: Frame<B>, alloc: A)
     where
         A: FrameAllocator,
+        B: FrameAllocator,
     {
         let l4_idx = page.level4_page_number();
         let l3_idx = page.level3_page_number();
@@ -30,11 +31,17 @@ impl<'a> Mapper<'a> {
             //       for now, this is fine
             l1_table[l1_idx] = Entry::new(&frame, Flags::PRESENT | Flags::WRITE);
         }
+
+        // TODO: Should formalize this better
+        core::mem::forget(frame);
     }
     // maps a page to a given frame
     // does not allocate new page tables, i.e. it will
     // return an error if the entire path down the tree isn't allocated
-    pub fn map_no_alloc(&mut self, page: Page, frame: Frame) -> Result<(), &str> {
+    pub fn map_no_alloc<A>(&mut self, page: Page, frame: Frame<A>) -> Result<(), &str>
+    where
+        A: FrameAllocator,
+    {
         let l4_idx = page.level4_page_number();
         let l3_idx = page.level3_page_number();
         let l2_idx = page.level2_page_number();
@@ -58,6 +65,9 @@ impl<'a> Mapper<'a> {
             //       for now, this is fine
             l1_table[l1_idx] = Entry::new(&frame, Flags::PRESENT | Flags::WRITE);
         }
+
+        // TODO: Should formalize this better
+        core::mem::forget(frame);
         Ok(())
     }
 

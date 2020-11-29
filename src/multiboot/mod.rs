@@ -2,7 +2,7 @@ pub mod tag;
 
 use core::marker::PhantomData;
 
-use crate::memory::MemoryRegion;
+use crate::memory::MemoryRange;
 use tag::*;
 
 // TODO: I may want to wrap this in another struct
@@ -21,9 +21,9 @@ impl<'a> Multiboot2Info<'a> {
     }
 
     /// Returns a logical memory region in which this multiboot2 struct resides
-    pub fn memory_region(&self) -> MemoryRegion {
+    pub fn memory_region(&self) -> MemoryRange {
         let start = (self as *const Multiboot2Info) as usize;
-        MemoryRegion::new(start, start + self.total_size as usize)
+        MemoryRange::new(start, start + self.total_size as usize)
     }
 
     pub fn memory_info(&self) -> Option<&'a MemoryInfo> {

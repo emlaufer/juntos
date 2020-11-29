@@ -5,7 +5,6 @@ use core::mem::size_of;
 
 use super::InternalCStr;
 use super::TagHeader;
-use crate::memory::MemoryRegion;
 
 const ELF32_SHDR_SIZE: u32 = size_of::<Elf32Shdr>() as u32;
 const ELF64_SHDR_SIZE: u32 = size_of::<Elf64Shdr>() as u32;
@@ -28,33 +27,6 @@ impl ElfSymbols {
             string_section: self.string_section(),
             _marker: PhantomData,
         }
-    }
-
-    /// Returns a MemoryRegion that bounds where the kernel resides in memory
-    pub fn kernel_memory_region(&self) -> MemoryRegion {
-        let start = self
-            .sections()
-            .filter_map(|section| {
-                if section.section_type() != SectionType::Null {
-                    Some(section.addr())
-                } else {
-                    None
-                }
-            })
-            .min()
-            .unwrap();
-        let end = self
-            .sections()
-            .filter_map(|section| {
-                if section.section_type() != SectionType::Null {
-                    Some(section.addr())
-                } else {
-                    None
-                }
-            })
-            .max()
-            .unwrap();
-        MemoryRegion::new(start as usize, end as usize)
     }
 
     fn section_list_start(&self) -> *const u8 {

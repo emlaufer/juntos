@@ -28,11 +28,8 @@ mod vga;
 #[allow(dead_code)]
 mod multiboot;
 
-use alloc::boxed::Box;
 use core::mem;
-use memory::BumpAllocator;
 use multiboot::Multiboot2Info;
-use utils::IterExtras;
 
 const MAGIC: u32 = 0x36d76289;
 
@@ -57,6 +54,10 @@ pub extern "C" fn kernel_main(
 ) -> ! {
     // ensure multiboot2 magic is correct (or else we were loaded by the wrong bootloader)
     assert!(magic == MAGIC);
+    println!(
+        "Stack bottom: {:x?} stack top: {:x?}",
+        boot_info.stack_bottom, boot_info.stack_top
+    );
 
     // TODO:
     // 1. remove mapping to lower half
@@ -68,14 +69,13 @@ pub extern "C" fn kernel_main(
     let multiboot_range = multiboot_info.memory_region();
 
     // TODO: this wont work due to higher half mapping. Just get it from linker instead
-    let _kernel_range = multiboot_info.elf_symbols().unwrap().kernel_memory_region();
+    //let _kernel_range = multiboot_info.elf_symbols().unwrap().kernel_memory_region();
 
     // subtract the memory regions for the kernel and multiboot header
     // Honestly should just make a data structure that manages this for me
     // TODO: should also copy it to kernel memory so I don't need to keep the multiboot struct
     //        around
     //
-    use crate::memory::PhysicalMemoryRegion;
 
     let mmap = multiboot_info.memory_map().unwrap().available();
     let kernel_entry = mmap
@@ -97,15 +97,19 @@ pub extern "C" fn kernel_main(
         boot_info.vkernel_start, boot_info.vkernel_end
     );
 
+    println!(
+        "Stack size: {:x?} {:x?}",
+        boot_info.stack_bottom, boot_info.stack_top
+    );
+
     // TODO: if we don't save multiboot_region, we need to drop it
     mem::drop(multiboot_info);
 
-    use crate::memory::{Bitmap, BitmapAllocator};
-    let bitmap_region = main_region.take(512);
-    let bitmap_mem =
-        unsafe { core::slice::from_raw_parts_mut(boot_info.vkernel_end as *mut u64, 512) };
-    let bitmap = Bitmap::new(bitmap_mem);
-    let mut _bitmap_alloc = BitmapAllocator::new(bitmap, main_region);
+    // TEST New alloc design
+    use crate::memory::BootstrapAllocator;
+    use crate::memory::{FrameAllocator, PhysicalMemoryRegion};
+    unsafe { BootstrapAllocator::init(main_region) }
+    let alloc = BootstrapAllocator::get();
 
     // TEST: check paging code
     use arch::x86_64::paging::{Page, VirtualAddress, PAGE_TABLE};
@@ -115,9 +119,8 @@ pub extern "C" fn kernel_main(
 
     // try out the page table mappings
     let page = Page::containing(VirtualAddress::new(0xFFFF_DEAD_BEEF_B000));
-    let frame = Frame::containing((0xB_8000) as usize);
-    println!("{:?}", frame.addr());
-    pte.modify(|mut page_table| page_table.map(page, frame, &mut _bitmap_alloc));
+    let frame = Frame::<BootstrapAllocator>::containing((0xB_8000) as usize);
+    pte.modify(|mut page_table| page_table.map(page, frame, alloc));
 
     // Just write some random chars. Should only see a red T if it worked
     unsafe {

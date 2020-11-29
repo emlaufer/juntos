@@ -1,127 +1,28 @@
 use core::mem::size_of;
-use core::ptr::Unique;
 
-use super::Frame;
-use super::FrameAllocator;
-use super::PhysicalMemoryRegion;
-use super::PAGE_SIZE;
+use super::{FrameAllocatorImpl, PhysicalMemoryRegion, RawFrame, PAGE_SIZE};
+use crate::arch::x86_64::paging::PhysicalAddress;
 
-pub struct Bitmap<'a> {
-    pub bits: &'a mut [u64],
-}
-
-impl<'a> Bitmap<'a> {
-    /*pub fn empty() -> Bitmap {
-        Bitmap { bits: [] }
-    }*/
-
-    pub fn new(mem: &'a mut [u64]) -> Bitmap {
-        for item in mem.iter_mut() {
-            *item = 0;
-        }
-
-        Bitmap { bits: mem }
-    }
-
-    pub fn set(&mut self, index: usize) {
-        let word_index = index / 64;
-        let bit_offset = index % 64;
-        self.bits[word_index] |= 0x8000_0000_0000_0000 >> bit_offset;
-    }
-
-    pub fn unset(&mut self, index: usize) {
-        let word_index = index / (size_of::<u64>() * 8);
-        let bit_offset = index % (size_of::<u64>() * 8);
-        self.bits[word_index] &= !(0x8000_0000_0000_0000 >> bit_offset);
-    }
-
-    pub fn is_set(&self, index: usize) -> bool {
-        let word_index = index / (size_of::<u64>() * 8);
-        let bit_offset = index % (size_of::<u64>() * 8);
-        self.bits[word_index] & !(0x8000_0000_0000_0000 >> bit_offset) != 0
-    }
-
-    fn first_unset(&self) -> Option<usize> {
-        for i in 0..self.len_words() {
-            let word = self.get_word(i);
-            if self.get_word(i) != 0xFFFF_FFFF_FFFF_FFFF {
-                return Some(i * 8 + word.leading_ones() as usize);
-            }
-        }
-
-        return None;
-    }
-
-    /// Finds a contiguous range of free frames in the bitmap, and returns
-    /// the index of the first frame.
-    ///
-    /// NOTE: This is VERY inefficient, and probably should not be used if it can be avoided,
-    ///       as it must do a linear scan over all bits.
-    fn contiguous_range(&self, num: usize) -> Option<usize> {
-        if num > self.size() {
-            return None;
-        }
-
-        let mut count = 0;
-        for i in 0..self.len_words() {
-            let mut word = self.get_word(i);
-            for b in 0..(size_of::<u64>() * 8) {
-                // if first bit not set
-                if word & 0x8000_0000_0000_0000 == 0 {
-                    count += 1;
-                } else {
-                    count = 0;
-                }
-
-                if count == num {
-                    return Some((i * 8) + b + 1 - num);
-                }
-
-                word <<= 1;
-            }
-        }
-
-        return None;
-    }
-
-    fn get_word(&self, index: usize) -> u64 {
-        self.bits[index]
-    }
-
-    fn len_words(&self) -> usize {
-        self.bits.len()
-    }
-
-    fn size(&self) -> usize {
-        self.bits.len() * 8
-    }
-}
-
-// For now, this allocator will manage all of
-// memory.
-pub struct BitmapAllocator<'a> {
-    bitmap: Bitmap<'a>,
+/// A simple "bootstrap" allocator. This uses a fixed-size, internal bitmap to track allocations,
+/// and should only be used during early booting. This can be used to boostrap other, more
+/// complex allocators.
+pub struct BootstrapAllocatorImpl {
+    bitmap: FixedBitmap,
     arena: PhysicalMemoryRegion,
 }
 
-impl<'a> BitmapAllocator<'a> {
-    /// Creates a new BitmapAllocator.
-    pub fn new(bitmap: Bitmap, arena: PhysicalMemoryRegion) -> BitmapAllocator {
-        // TODO: Check size of bitmap
-        BitmapAllocator { bitmap, arena }
-    }
-
+impl BootstrapAllocatorImpl {
     fn first_frame_num(&self) -> usize {
         self.arena.base.align_up(PAGE_SIZE as u64).as_usize() / PAGE_SIZE
     }
 
     fn end_frame_num(&self) -> usize {
-        Frame::number_from_addr(self.arena.end())
+        self.arena.end().frame_num()
     }
 
     /// Converts a bitmap index into a frame number.
     fn frame_number(&self, index: usize) -> usize {
-        let first_frame_num = Frame::number_from_addr(self.arena.base);
+        let first_frame_num = self.arena.base.frame_num();
         index + first_frame_num
     }
 
@@ -148,14 +49,25 @@ impl<'a> BitmapAllocator<'a> {
         }
 
         Some(PhysicalMemoryRegion {
-            base: Frame::addr_from_number(start_frame + first_frame_num),
+            base: PhysicalAddress::from_frame_num(start_frame + first_frame_num),
             size: num_frames * PAGE_SIZE,
         })
     }
 }
 
-impl<'a> FrameAllocator for BitmapAllocator<'a> {
-    fn alloc(&mut self) -> Option<Frame> {
+impl FrameAllocatorImpl for BootstrapAllocatorImpl {
+    fn new() -> BootstrapAllocatorImpl {
+        BootstrapAllocatorImpl {
+            bitmap: FixedBitmap { words: [0; 64] },
+            arena: PhysicalMemoryRegion::empty(),
+        }
+    }
+
+    fn init(&mut self, region: PhysicalMemoryRegion) {
+        self.arena = region;
+    }
+
+    fn alloc(&mut self) -> Option<RawFrame> {
         let first_frame_num = self.first_frame_num();
         let first_free = self.bitmap.first_unset()?;
         let frame_num = first_free + first_frame_num;
@@ -167,10 +79,10 @@ impl<'a> FrameAllocator for BitmapAllocator<'a> {
         }
 
         self.bitmap.set(first_free);
-        Some(Frame { num: frame_num })
+        Some(RawFrame { num: frame_num })
     }
 
-    fn dealloc(&mut self, frame: Frame) {
+    fn dealloc(&mut self, frame: RawFrame) {
         let first_frame_num = self.first_frame_num();
 
         // TODO: is this the best way to error handle here?
@@ -189,6 +101,77 @@ impl<'a> FrameAllocator for BitmapAllocator<'a> {
     }
 }
 
+pub struct FixedBitmap {
+    words: [u64; 64],
+}
+
+impl FixedBitmap {
+    pub fn set(&mut self, index: usize) {
+        let word_index = index / 64;
+        let bit_offset = index % 64;
+        self.words[word_index] |= 0x8000_0000_0000_0000 >> bit_offset;
+    }
+
+    pub fn unset(&mut self, index: usize) {
+        let word_index = index / (size_of::<u64>() * 8);
+        let bit_offset = index % (size_of::<u64>() * 8);
+        self.words[word_index] &= !(0x8000_0000_0000_0000 >> bit_offset);
+    }
+
+    pub fn is_set(&self, index: usize) -> bool {
+        let word_index = index / (size_of::<u64>() * 8);
+        let bit_offset = index % (size_of::<u64>() * 8);
+        (self.words[word_index] & (0x8000_0000_0000_0000 >> bit_offset)) != 0
+    }
+
+    fn first_unset(&self) -> Option<usize> {
+        for i in 0..self.words.len() {
+            let word = self.words[i];
+            if self.words[i] != 0xFFFF_FFFF_FFFF_FFFF {
+                return Some(i * 8 + word.leading_ones() as usize);
+            }
+        }
+
+        return None;
+    }
+
+    /// Finds a contiguous range of free frames in the bitmap, and returns
+    /// the index of the first frame.
+    ///
+    /// NOTE: This is VERY inefficient, and probably should not be used if it can be avoided,
+    ///       as it must do a linear scan over all bits.
+    fn contiguous_range(&self, num: usize) -> Option<usize> {
+        if num > self.size() {
+            return None;
+        }
+
+        let mut count = 0;
+        for i in 0..self.words.len() {
+            let mut word = self.words[i];
+            for b in 0..(size_of::<u64>() * 8) {
+                // if first bit not set
+                if word & 0x8000_0000_0000_0000 == 0 {
+                    count += 1;
+                } else {
+                    count = 0;
+                }
+
+                if count == num {
+                    return Some((i * 8) + b + 1 - num);
+                }
+
+                word <<= 1;
+            }
+        }
+
+        return None;
+    }
+
+    fn size(&self) -> usize {
+        self.words.len() * 8
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -196,30 +179,28 @@ mod test {
 
     #[test]
     fn first_entry() {
-        let mut mem = [0 as u64; 20];
-
-        let mut bitmap = Bitmap { bits: &mut mem };
+        let mut bitmap = FixedBitmap { words: [0u64; 64] };
 
         bitmap.set(0);
 
-        assert_eq!(mem[0], 0x8000_0000_0000_0000);
+        assert!(bitmap.is_set(0));
     }
 
     #[test]
     fn aligned_first() {
-        let mut mem = [0 as u64; 20];
-        let bitmap = Bitmap { bits: &mut mem };
+        let mut bitmap = FixedBitmap { words: [0u64; 64] };
         let region = PhysicalMemoryRegion::new(PhysicalAddress::new(0x1000), 0x5000);
-        let mut bitmap_alloc = BitmapAllocator::new(bitmap, region);
+        let mut bitmap_alloc = BootstrapAllocatorImpl {
+            bitmap,
+            arena: region,
+        };
 
-        assert_eq!(bitmap_alloc.alloc(), Some(Frame { num: 0x1 }));
+        assert_eq!(bitmap_alloc.alloc(), Some(RawFrame { num: 0x1 }));
     }
 
     #[test]
     fn set() {
-        let mut mem = [0 as u64; 20];
-
-        let mut bitmap = Bitmap { bits: &mut mem };
+        let mut bitmap = FixedBitmap { words: [0u64; 64] };
 
         bitmap.set(0);
         bitmap.set(20);
@@ -227,27 +208,28 @@ mod test {
         bitmap.set(300);
         bitmap.set(420);
 
-        assert_eq!(mem[0], 0x8000_0C00_0000_0000);
-        assert_eq!(mem[4], 2u64.pow(19));
-        assert_eq!(mem[6], 2u64.pow(27));
+        assert!(bitmap.is_set(0));
+        assert!(bitmap.is_set(20));
+        assert!(bitmap.is_set(21));
+        assert!(bitmap.is_set(300));
+        assert!(bitmap.is_set(420));
     }
 
     #[test]
     fn unset() {
-        let mut mem = [0 as u64; 20];
-        let mut bitmap = Bitmap { bits: &mut mem };
+        let mut bitmap = FixedBitmap { words: [0u64; 64] };
 
         bitmap.set(20);
         bitmap.set(21);
         bitmap.unset(20);
 
-        assert_eq!(mem[0], 0x0000_0400_0000_0000);
+        assert!(!bitmap.is_set(20));
+        assert!(bitmap.is_set(21));
     }
 
     #[test]
     fn range() {
-        let mut mem = [0 as u64; 20];
-        let mut bitmap = Bitmap { bits: &mut mem };
+        let mut bitmap = FixedBitmap { words: [0u64; 64] };
 
         bitmap.set(20);
         bitmap.set(21);
@@ -266,8 +248,7 @@ mod test {
 
     #[test]
     fn next_free() {
-        let mut mem = [0 as u64; 20];
-        let mut bitmap = Bitmap { bits: &mut mem };
+        let mut bitmap = FixedBitmap { words: [0u64; 64] };
 
         assert_eq!(bitmap.first_unset(), Some(0));
         bitmap.set(0);
@@ -287,31 +268,35 @@ mod test {
 
     #[test]
     fn alloc() {
-        let mut mem = [0 as u64; 20];
-        let bitmap = Bitmap { bits: &mut mem };
+        let bitmap = FixedBitmap { words: [0u64; 64] };
         let region = PhysicalMemoryRegion::new(PhysicalAddress::new(0x1300), 0x5000);
-        let mut bitmap_alloc = BitmapAllocator::new(bitmap, region);
+        let mut bitmap_alloc = BootstrapAllocatorImpl {
+            bitmap,
+            arena: region,
+        };
 
-        assert_eq!(bitmap_alloc.alloc(), Some(Frame { num: 0x2 }));
-        assert_eq!(bitmap_alloc.alloc(), Some(Frame { num: 0x3 }));
-        assert_eq!(bitmap_alloc.alloc(), Some(Frame { num: 0x4 }));
-        assert_eq!(bitmap_alloc.alloc(), Some(Frame { num: 0x5 }));
+        assert_eq!(bitmap_alloc.alloc(), Some(RawFrame { num: 0x2 }));
+        assert_eq!(bitmap_alloc.alloc(), Some(RawFrame { num: 0x3 }));
+        assert_eq!(bitmap_alloc.alloc(), Some(RawFrame { num: 0x4 }));
+        assert_eq!(bitmap_alloc.alloc(), Some(RawFrame { num: 0x5 }));
         assert_eq!(bitmap_alloc.alloc(), None);
         assert_eq!(bitmap_alloc.alloc(), None);
 
-        bitmap_alloc.dealloc(Frame { num: 0x3 });
-        bitmap_alloc.dealloc(Frame { num: 0x5 });
-        assert_eq!(bitmap_alloc.alloc(), Some(Frame { num: 0x3 }));
-        assert_eq!(bitmap_alloc.alloc(), Some(Frame { num: 0x5 }));
+        bitmap_alloc.dealloc(RawFrame { num: 0x3 });
+        bitmap_alloc.dealloc(RawFrame { num: 0x5 });
+        assert_eq!(bitmap_alloc.alloc(), Some(RawFrame { num: 0x3 }));
+        assert_eq!(bitmap_alloc.alloc(), Some(RawFrame { num: 0x5 }));
         assert_eq!(bitmap_alloc.alloc(), None);
     }
 
     #[test]
     fn alloc_sub_range() {
-        let mut mem = [0 as u64; 20];
-        let bitmap = Bitmap { bits: &mut mem };
+        let bitmap = FixedBitmap { words: [0u64; 64] };
         let region = PhysicalMemoryRegion::new(PhysicalAddress::new(0x1300), 0x5000);
-        let mut bitmap_alloc = BitmapAllocator::new(bitmap, region);
+        let mut bitmap_alloc = BootstrapAllocatorImpl {
+            bitmap,
+            arena: region,
+        };
 
         assert_eq!(
             bitmap_alloc.alloc_range(4096),
@@ -327,7 +312,7 @@ mod test {
                 size: 8192
             })
         );
-        assert_eq!(bitmap_alloc.alloc(), Some(Frame { num: 5 }));
+        assert_eq!(bitmap_alloc.alloc(), Some(RawFrame { num: 5 }));
         assert_eq!(bitmap_alloc.alloc(), None);
         assert_eq!(bitmap_alloc.alloc_range(4096), None);
         assert_eq!(bitmap_alloc.alloc_range(8192), None);
@@ -336,22 +321,26 @@ mod test {
     #[test]
     #[should_panic(expected = "Attempting to free unallocated frame!")]
     fn dealloc_unallocated() {
-        let mut mem = [0 as u64; 20];
-        let bitmap = Bitmap { bits: &mut mem };
+        let bitmap = FixedBitmap { words: [0u64; 64] };
         let region = PhysicalMemoryRegion::new(PhysicalAddress::new(0x1300), 0x5000);
-        let mut bitmap_alloc = BitmapAllocator::new(bitmap, region);
+        let mut bitmap_alloc = BootstrapAllocatorImpl {
+            bitmap,
+            arena: region,
+        };
 
-        bitmap_alloc.dealloc(Frame { num: 3 });
+        bitmap_alloc.dealloc(RawFrame { num: 3 });
     }
 
     #[test]
     #[should_panic(expected = "Attempting to free frame outside of arena!")]
     fn dealloc_outside_arena() {
-        let mut mem = [0 as u64; 20];
-        let bitmap = Bitmap { bits: &mut mem };
+        let bitmap = FixedBitmap { words: [0u64; 64] };
         let region = PhysicalMemoryRegion::new(PhysicalAddress::new(0x1300), 0x5000);
-        let mut bitmap_alloc = BitmapAllocator::new(bitmap, region);
+        let mut bitmap_alloc = BootstrapAllocatorImpl {
+            bitmap,
+            arena: region,
+        };
 
-        bitmap_alloc.dealloc(Frame { num: 12 });
+        bitmap_alloc.dealloc(RawFrame { num: 12 });
     }
 }

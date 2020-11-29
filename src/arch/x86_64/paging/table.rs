@@ -38,7 +38,7 @@ impl RecursivePageTable {
         }
     }
 
-    pub unsafe fn create_table<A>(&mut self, index: usize, alloc: &mut A) -> &mut RecursivePageTable
+    pub unsafe fn create_table<A>(&mut self, index: usize, alloc: A) -> &mut RecursivePageTable
     where
         A: FrameAllocator,
     {
@@ -48,10 +48,16 @@ impl RecursivePageTable {
                 .alloc()
                 .expect("Out of memory for creating page tables!");
             self[index] = Entry::new(&frame, Flags::PRESENT | Flags::WRITE | Flags::USER);
-            self.get_table_mut(index).unwrap().clear();
+
+            // TODO: Should formalize this better
+            core::mem::forget(frame);
+            self.get_table_mut(index)
+                .expect("Table entry after allocation still empty!")
+                .clear();
         }
 
-        self.get_table_mut(index).unwrap()
+        self.get_table_mut(index)
+            .expect("Table entry after allocation still empty!")
     }
 }
 
@@ -87,8 +93,11 @@ pub struct Entry(u64);
 impl Entry {
     const ADDR_MASK: u64 = 0x000F_FFFF_FFFF_F000;
 
-    pub fn new(frame: &Frame, flags: Flags) -> Entry {
-        Entry((frame.addr().as_u64() & Entry::ADDR_MASK) | flags.bits)
+    pub fn new<A>(frame: &Frame<A>, flags: Flags) -> Entry
+    where
+        A: FrameAllocator,
+    {
+        Entry(((frame.num() as u64) << 12) | flags.bits)
     }
 
     pub fn empty() -> Entry {

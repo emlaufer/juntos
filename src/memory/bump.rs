@@ -1,6 +1,6 @@
 /// A simple bump allocator for physical frames
 /// TODO
-use super::{Frame, FrameAllocator, FrameIter, MemoryRegion};
+use super::{Frame, FrameAllocatorImpl, FrameIter, MemoryRegion};
 
 pub struct BumpAllocator<I: Iterator<Item = MemoryRegion>> {
     frames_iter: Option<FrameIter>,
@@ -17,7 +17,7 @@ impl<I: Iterator<Item = MemoryRegion>> BumpAllocator<I> {
     }
 }
 
-impl<I: Iterator<Item = MemoryRegion>> FrameAllocator for BumpAllocator<I> {
+impl<I: Iterator<Item = MemoryRegion>> FrameAllocatorImpl for BumpAllocator<I> {
     fn alloc(&mut self) -> Option<Frame> {
         // returns None if frames_iter is none, else get next frame
         let frame = self.frames_iter.as_mut()?.next();
